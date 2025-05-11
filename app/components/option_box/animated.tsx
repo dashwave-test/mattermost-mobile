@@ -7,6 +7,7 @@ import Animated, {Easing, interpolate, interpolateColor, runOnJS, useAnimatedSty
 
 import CompassIcon from '@components/compass_icon';
 import {useTheme} from '@context/theme';
+import {useReduceMotion} from '@hooks/device';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
@@ -56,12 +57,18 @@ const AnimatedOptionBox = ({
     const styles = getStyleSheet(theme);
     const [activated, setActivated] = useState(false);
     const animate = useSharedValue(0);
+    const reduceMotion = useReduceMotion();
 
     const handleOnPress = useCallback(() => {
-        animate.value = withTiming(1, {duration: 150, easing: Easing.out(Easing.linear)});
-        setActivated(true);
+        if (!reduceMotion) {
+            animate.value = withTiming(1, {duration: 150, easing: Easing.out(Easing.linear)});
+            setActivated(true);
+        } else if (onAnimationEnd) {
+            // If animations are disabled, immediately call the animation end callback
+            onAnimationEnd();
+        }
         onPress();
-    }, [animate, onPress]);
+    }, [animate, onPress, onAnimationEnd, reduceMotion]);
 
     const backgroundStyle = useAnimatedStyle(() => ({
         backgroundColor: interpolateColor(
@@ -112,6 +119,36 @@ const AnimatedOptionBox = ({
             }
         };
     }, [activated, animate, onAnimationEnd]);
+
+    // If reduce motion is enabled, render a simpler version without animations
+    if (reduceMotion) {
+        return (
+            <Pressable
+                onPress={handleOnPress}
+                style={styles.container}
+                testID={testID}
+            >
+                {({pressed}) => (
+                    <View style={[styles.container, styles.background, pressed && {backgroundColor: changeOpacity(theme.buttonBg, 0.16)}]}>
+                        <View style={[styles.container, styles.center]}>
+                            <CompassIcon
+                                color={pressed ? theme.buttonBg : changeOpacity(theme.centerChannelColor, 0.56)}
+                                name={iconName}
+                                size={24}
+                            />
+                            <Text
+                                numberOfLines={1}
+                                style={[styles.text, {color: pressed ? theme.buttonBg : changeOpacity(theme.centerChannelColor, 0.56)}]}
+                                testID={`${testID}.label`}
+                            >
+                                {text}
+                            </Text>
+                        </View>
+                    </View>
+                )}
+            </Pressable>
+        );
+    }
 
     return (
         <AnimatedPressable

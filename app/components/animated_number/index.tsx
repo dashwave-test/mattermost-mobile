@@ -4,6 +4,8 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {Animated, Easing, type LayoutChangeEvent, type StyleProp, Text, type TextStyle, View} from 'react-native';
 
+import {useReduceMotion} from '@hooks/device';
+
 interface Props {
     animateToNumber: number;
     fontStyle?: StyleProp<TextStyle>;
@@ -30,6 +32,7 @@ const AnimatedNumber = ({
 }: Props) => {
     const previousNumber = usePrevious(animateToNumber);
     const [numberHeight, setNumberHeight] = useState(0);
+    const reduceMotion = useReduceMotion();
 
     const animateToNumberString = String(Math.abs(animateToNumber));
 
@@ -66,7 +69,7 @@ const AnimatedNumber = ({
     }, [animateToNumberString, numberHeight, previousNumberString]);
 
     useEffect(() => {
-        if (!numberHeight) {
+        if (!numberHeight || reduceMotion) {
             return;
         }
 
@@ -85,11 +88,24 @@ const AnimatedNumber = ({
         animations,
         easing,
         numberHeight,
+        reduceMotion,
     ]);
 
     const setButtonLayout = useCallback((e: LayoutChangeEvent) => {
         setNumberHeight(e.nativeEvent.layout.height);
     }, []);
+
+    // If reduce motion is enabled, just show the number without animation
+    if (reduceMotion) {
+        return (
+            <Text
+                style={[fontStyle]}
+                testID={'no-animation-number'}
+            >
+                {animateToNumber < 0 ? '-' : ''}{animateToNumberString}
+            </Text>
+        );
+    }
 
     return (
         <>
