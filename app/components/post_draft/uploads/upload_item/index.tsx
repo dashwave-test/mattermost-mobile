@@ -2,7 +2,7 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {StyleSheet, TouchableWithoutFeedback, View} from 'react-native';
+import {StyleSheet, Text, TouchableWithoutFeedback, View} from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import {updateDraftFile} from '@actions/local/draft';
@@ -16,6 +16,7 @@ import {useGalleryItem} from '@hooks/gallery';
 import DraftUploadManager from '@managers/draft_upload_manager';
 import {isImage} from '@utils/file';
 import {changeOpacity} from '@utils/theme';
+import {typography} from '@utils/typography';
 
 import UploadRemove from './upload_remove';
 import UploadRetry from './upload_retry';
@@ -56,6 +57,17 @@ const style = StyleSheet.create({
     filePreview: {
         width: 56,
         height: 56,
+    },
+    fileName: {
+        marginTop: 2,
+        width: 56,
+        color: undefined,
+        textAlign: 'center',
+        fontSize: 10,
+        lineHeight: 12,
+    },
+    itemContainer: {
+        alignItems: 'center',
     },
 });
 
@@ -128,38 +140,72 @@ export default function UploadItem({
         );
     }, [file, ref, theme.centerChannelColor]);
 
+    // Truncate filename if it's too long
+    const displayFileName = useMemo(() => {
+        if (!file.name) {
+            return '';
+        }
+        
+        const maxLength = 10;
+        let fileName = file.name.trim();
+        
+        if (fileName.length > maxLength) {
+            // Get file extension
+            const lastDotIndex = fileName.lastIndexOf('.');
+            const extension = lastDotIndex !== -1 ? fileName.substring(lastDotIndex) : '';
+            
+            // Truncate the name part
+            const namePart = fileName.substring(0, lastDotIndex !== -1 ? lastDotIndex : fileName.length);
+            if (namePart.length > maxLength - 3) {
+                fileName = namePart.substring(0, maxLength - 3) + '...' + extension;
+            }
+        }
+        
+        return fileName;
+    }, [file.name]);
+
     return (
         <View
             key={file.clientId}
             style={style.preview}
         >
-            <View style={style.previewContainer}>
-                <TouchableWithoutFeedback onPress={onGestureEvent}>
-                    <Animated.View style={[styles, style.filePreview]}>
-                        {filePreviewComponent}
-                    </Animated.View>
-                </TouchableWithoutFeedback>
-                {file.failed &&
-                <UploadRetry
-                    onPress={retryFileUpload}
-                />
-                }
-                {loading && !file.failed &&
-                <View style={style.progress}>
-                    <ProgressBar
-                        progress={progress || 0}
-                        color={theme.buttonBg}
-                        containerStyle={style.progressContainer}
+            <View style={style.itemContainer}>
+                <View style={style.previewContainer}>
+                    <TouchableWithoutFeedback onPress={onGestureEvent}>
+                        <Animated.View style={[styles, style.filePreview]}>
+                            {filePreviewComponent}
+                        </Animated.View>
+                    </TouchableWithoutFeedback>
+                    {file.failed &&
+                    <UploadRetry
+                        onPress={retryFileUpload}
                     />
+                    }
+                    {loading && !file.failed &&
+                    <View style={style.progress}>
+                        <ProgressBar
+                            progress={progress || 0}
+                            color={theme.buttonBg}
+                            containerStyle={style.progressContainer}
+                        />
+                    </View>
+                    }
                 </View>
-                }
+                {file.name && (
+                    <Text
+                        style={[style.fileName, {color: theme.centerChannelColor}]}
+                        numberOfLines={1}
+                        ellipsizeMode='middle'
+                    >
+                        {displayFileName}
+                    </Text>
+                )}
+                <UploadRemove
+                    clientId={file.clientId!}
+                    channelId={channelId}
+                    rootId={rootId}
+                />
             </View>
-            <UploadRemove
-                clientId={file.clientId!}
-                channelId={channelId}
-                rootId={rootId}
-            />
         </View>
     );
 }
-
