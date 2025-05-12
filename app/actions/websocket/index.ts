@@ -1,152 +1,123 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {markChannelAsViewed} from '@actions/local/channel';
-import {dataRetentionCleanup} from '@actions/local/systems';
-import {markChannelAsRead} from '@actions/remote/channel';
-import {
-    deferredAppEntryActions,
-    entry,
-    handleEntryAfterLoadNavigation,
-    setExtraSessionProps,
-} from '@actions/remote/entry/common';
-import {fetchPostsForChannel, fetchPostThread} from '@actions/remote/post';
-import {openAllUnreadChannels} from '@actions/remote/preference';
-import {autoUpdateTimezone} from '@actions/remote/user';
-import {loadConfigAndCalls} from '@calls/actions/calls';
-import {isSupportedServerCalls} from '@calls/utils';
-import {Screens} from '@constants';
+import {fetchStatusByIds} from '@actions/remote/user';
+import {processPendingPostDeletions} from '@actions/local/post';
+import {General} from '@constants';
 import DatabaseManager from '@database/manager';
-import AppsManager from '@managers/apps_manager';
-import {getActiveServerUrl} from '@queries/app/servers';
-import {getLastPostInThread} from '@queries/servers/post';
-import {
-    getConfig,
-    getCurrentChannelId,
-    getCurrentTeamId,
-    getLicense,
-    getLastFullSync,
-    setLastFullSync,
-} from '@queries/servers/system';
-import {getIsCRTEnabled} from '@queries/servers/thread';
+import NetworkManager from '@managers/network_manager';
+import {getChannelById} from '@queries/servers/channel';
+import {getCurrentUserId} from '@queries/servers/system';
 import {getCurrentUser} from '@queries/servers/user';
-import EphemeralStore from '@store/ephemeral_store';
-import NavigationStore from '@store/navigation_store';
-import {setTeamLoading} from '@store/team_load_store';
-import {isTablet} from '@utils/helpers';
-import {logDebug, logInfo} from '@utils/log';
+import {logDebug} from '@utils/log';
 
 export async function handleFirstConnect(serverUrl: string, groupLabel?: BaseRequestGroupLabel) {
-    setExtraSessionProps(serverUrl, groupLabel);
-    autoUpdateTimezone(serverUrl, groupLabel);
-    return doReconnect(serverUrl, groupLabel);
-}
-
-export async function handleReconnect(serverUrl: string, groupLabel: BaseRequestGroupLabel = 'WebSocket Reconnect') {
-    return doReconnect(serverUrl, groupLabel);
-}
-
-async function doReconnect(serverUrl: string, groupLabel?: BaseRequestGroupLabel) {
-    const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
-    if (!operator) {
-        return new Error('cannot find server database');
-    }
-
-    const appDatabase = DatabaseManager.appDatabase?.database;
-    if (!appDatabase) {
-        return new Error('cannot find app database');
-    }
-
-    const {database} = operator;
-
-    const lastFullSync = await getLastFullSync(database);
-    const now = Date.now();
-
-    const currentTeamId = await getCurrentTeamId(database);
-    const currentChannelId = await getCurrentChannelId(database);
-
-    setTeamLoading(serverUrl, true);
-    const entryData = await entry(serverUrl, currentTeamId, currentChannelId, lastFullSync, groupLabel);
-    if ('error' in entryData) {
-        setTeamLoading(serverUrl, false);
-        return entryData.error;
-    }
-    const {models, initialTeamId, initialChannelId, prefData, teamData, chData, gmConverted} = entryData;
-
-    await handleEntryAfterLoadNavigation(serverUrl, teamData.memberships || [], chData?.memberships || [], currentTeamId || '', currentChannelId || '', initialTeamId, initialChannelId, gmConverted);
-
-    const dt = Date.now();
-    if (models?.length) {
-        await operator.batchRecords(models, 'doReconnect');
-    }
-
-    await setLastFullSync(operator, now);
-
-    logInfo('WEBSOCKET RECONNECT MODELS BATCHING TOOK', `${Date.now() - dt}ms`);
-    setTeamLoading(serverUrl, false);
-
-    await fetchPostDataIfNeeded(serverUrl, groupLabel);
-
-    const {id: currentUserId, locale: currentUserLocale} = (await getCurrentUser(database))!;
-    const license = await getLicense(database);
-    const config = await getConfig(database);
-
-    if (isSupportedServerCalls(config?.Version)) {
-        loadConfigAndCalls(serverUrl, currentUserId, groupLabel);
-    }
-
-    await deferredAppEntryActions(serverUrl, lastFullSync, currentUserId, currentUserLocale, prefData.preferences, config, license, teamData, chData, initialTeamId, undefined, groupLabel);
-
-    openAllUnreadChannels(serverUrl, groupLabel);
-
-    dataRetentionCleanup(serverUrl);
-
-    AppsManager.refreshAppBindings(serverUrl, groupLabel);
-    return undefined;
-}
-
-async function fetchPostDataIfNeeded(serverUrl: string, groupLabel?: RequestGroupLabel) {
     try {
-        const isActiveServer = (await getActiveServerUrl()) === serverUrl;
-        if (!isActiveServer) {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const currentUserId = await getCurrentUserId(database);
+        const currentUser = await getCurrentUser(database);
+        if (currentUser?.isManualStatus) {
+            return false;
+        }
+
+        // Process any pending post deletions that were queued while offline
+        await processPendingPostDeletions(serverUrl);
+
+        // Update the user status
+        const client = NetworkManager.getClient(serverUrl);
+        await client.updateStatus({
+            user_id: currentUserId,
+            status: General.ONLINE,
+            manual: false,
+            last_activity_at: Date.now(),
+        }, groupLabel);
+
+        return false;
+    } catch (error) {
+        logDebug('error on handleFirstConnect', error);
+        return error;
+    }
+}
+
+export async function handleReconnect(serverUrl: string) {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const currentUserId = await getCurrentUserId(database);
+        const currentUser = await getCurrentUser(database);
+        if (currentUser?.isManualStatus) {
+            return false;
+        }
+
+        // Process any pending post deletions that were queued while offline
+        await processPendingPostDeletions(serverUrl);
+
+        // Update the user status
+        const client = NetworkManager.getClient(serverUrl);
+        await client.updateStatus({
+            user_id: currentUserId,
+            status: General.ONLINE,
+            manual: false,
+            last_activity_at: Date.now(),
+        });
+
+        return false;
+    } catch (error) {
+        logDebug('error on handleReconnect', error);
+        return error;
+    }
+}
+
+export async function handleClose(serverUrl: string, connectingState: boolean, shouldReconnect: boolean) {
+    if (shouldReconnect) {
+        return;
+    }
+
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const currentUserId = await getCurrentUserId(database);
+        const currentUser = await getCurrentUser(database);
+        if (currentUser?.isManualStatus) {
             return;
         }
 
-        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
-        const currentChannelId = await getCurrentChannelId(database);
-        const isCRTEnabled = await getIsCRTEnabled(database);
-        const mountedScreens = NavigationStore.getScreensInStack();
-        const isChannelScreenMounted = mountedScreens.includes(Screens.CHANNEL);
-        const isThreadScreenMounted = mountedScreens.includes(Screens.THREAD);
-        const tabletDevice = isTablet();
-
-        if (isCRTEnabled && isThreadScreenMounted) {
-            // Fetch new posts in the thread only when CRT is enabled,
-            // for non-CRT fetchPostsForChannel includes posts in the thread
-            const rootId = EphemeralStore.getCurrentThreadId();
-            if (rootId) {
-                const lastPost = await getLastPostInThread(database, rootId);
-                if (lastPost) {
-                    if (lastPost) {
-                        const options: FetchPaginatedThreadOptions = {};
-                        options.fromCreateAt = lastPost.createAt;
-                        options.fromPost = lastPost.id;
-                        options.direction = 'down';
-                        await fetchPostThread(serverUrl, rootId, options, false, groupLabel);
-                    }
-                }
-            }
-        }
-
-        if (currentChannelId && (isChannelScreenMounted || tabletDevice)) {
-            await fetchPostsForChannel(serverUrl, currentChannelId, false, false, groupLabel);
-            markChannelAsRead(serverUrl, currentChannelId, false, groupLabel);
-            if (!EphemeralStore.wasNotificationTapped()) {
-                markChannelAsViewed(serverUrl, currentChannelId, true);
-            }
-            EphemeralStore.setNotificationTapped(false);
-        }
+        // Update the user status
+        const client = NetworkManager.getClient(serverUrl);
+        await client.updateStatus({
+            user_id: currentUserId,
+            status: General.OFFLINE,
+            manual: false,
+            last_activity_at: Date.now(),
+        });
     } catch (error) {
-        logDebug('could not fetch needed post after WS reconnect', error);
+        logDebug('error on handleClose', error);
+    }
+}
+
+export async function handleEvent(serverUrl: string, msg: WebSocketMessage) {
+    const {broadcast, data, event} = msg;
+
+    // Update user status
+    if (event === General.WEBSOCKET_AUTHENTICATION_CHALLENGE) {
+        return;
+    }
+
+    if (event === General.WEBSOCKET_EVENT_STATUS_CHANGE) {
+        const userId = data.userId || data.user_id;
+        if (userId) {
+            fetchStatusByIds(serverUrl, [userId]);
+        }
+        return;
+    }
+
+    // Get the channel from channel id
+    if (broadcast?.channel_id) {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const channel = await getChannelById(database, broadcast.channel_id);
+        if (channel) {
+            const channelId = channel.id;
+            if (channelId) {
+                // Do something with the channel
+            }
+        }
     }
 }

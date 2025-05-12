@@ -3,13 +3,13 @@
 
 import {fetchPostAuthors} from '@actions/remote/post';
 import {ActionType, Post} from '@constants';
-import {MM_TABLES} from '@constants/database';
+import {MM_TABLES, PendingOperationType, SYSTEM_IDENTIFIERS} from '@constants/database';
 import DatabaseManager from '@database/manager';
 import {countUsersFromMentions, getPostById, prepareDeletePost, queryPostsById} from '@queries/servers/post';
-import {getCurrentUserId} from '@queries/servers/system';
+import {getCurrentUserId, getSystem} from '@queries/servers/system';
 import {getIsCRTEnabled, prepareThreadsFromReceivedPosts} from '@queries/servers/thread';
 import {generateId} from '@utils/general';
-import {logError} from '@utils/log';
+import {logDebug, logError} from '@utils/log';
 import {getLastFetchedAtFromPosts} from '@utils/post';
 import {getPostIdsForCombinedUserActivityPost} from '@utils/post_list';
 
@@ -350,5 +350,117 @@ export function getUsersCountFromMentions(serverUrl: string, mentions: string[])
         return countUsersFromMentions(database, mentions);
     } catch (error) {
         return Promise.resolve(0);
+    }
+}
+
+// Add a post to the pending operations queue for deletion when the app comes back online
+export async function addPendingPostDeletion(serverUrl: string, postId: string) {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        
+        // Get current pending operations
+        const pendingOperationsSystem = await getSystem(database, SYSTEM_IDENTIFIERS.PENDING_OPERATIONS);
+        let pendingOperations = [];
+        
+        if (pendingOperationsSystem) {
+            pendingOperations = pendingOperationsSystem.value || [];
+        }
+        
+        // Add the new operation
+        pendingOperations.push({
+            type: PendingOperationType.DELETE_POST,
+            payload: {
+                postId,
+            },
+            timestamp: Date.now(),
+        });
+        
+        // Store the updated pending operations
+        await database.write(async () => {
+            if (pendingOperationsSystem) {
+                await pendingOperationsSystem.update((record) => {
+                    record.value = pendingOperations;
+                });
+            } else {
+                await database.collections.get(MM_TABLES.SERVER.SYSTEM).create((record) => {
+                    record.id = SYSTEM_IDENTIFIERS.PENDING_OPERATIONS;
+                    record.value = pendingOperations;
+                });
+            }
+        });
+        
+        logDebug('Added post deletion to pending operations', postId);
+        return {success: true};
+    } catch (error) {
+        logError('Failed to add pending post deletion', error);
+        return {error};
+    }
+}
+
+// Process any pending post deletions
+export async function processPendingPostDeletions(serverUrl: string) {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        
+        // Get current pending operations
+        const pendingOperationsSystem = await getSystem(database, SYSTEM_IDENTIFIERS.PENDING_OPERATIONS);
+        
+        if (!pendingOperationsSystem || !pendingOperationsSystem.value || !pendingOperationsSystem.value.length) {
+            return {success: true};
+        }
+        
+        const pendingOperations = pendingOperationsSystem.value;
+        const postDeletions = pendingOperations.filter(
+            (op) => op.type === PendingOperationType.DELETE_POST
+        );
+        
+        if (!postDeletions.length) {
+            return {success: true};
+        }
+        
+        logDebug(`Processing ${postDeletions.length} pending post deletions`);
+        
+        // Import here to avoid circular dependency
+        const {deletePost} = require('@actions/remote/post');
+        
+        // Process each pending deletion
+        const results = [];
+        for (const operation of postDeletions) {
+            const {postId} = operation.payload;
+            
+            try {
+                // Try to get the post from the database
+                const post = await getPostById(database, postId);
+                
+                if (post) {
+                    // Delete the post from the server
+                    const result = await deletePost(serverUrl, post);
+                    results.push({postId, success: !result.error, error: result.error});
+                } else {
+                    // Post doesn't exist in local database anymore
+                    results.push({postId, success: true});
+                }
+            } catch (error) {
+                logError('Error processing pending post deletion', error);
+                results.push({postId, success: false, error});
+            }
+        }
+        
+        // Remove processed operations from the pending list
+        const remainingOperations = pendingOperations.filter(
+            (op) => op.type !== PendingOperationType.DELETE_POST
+        );
+        
+        // Update the pending operations in the database
+        await database.write(async () => {
+            await pendingOperationsSystem.update((record) => {
+                record.value = remainingOperations;
+            });
+        });
+        
+        return {success: true, results};
+    } catch (error) {
+        logError('Failed to process pending post deletions', error);
+        return {error};
     }
 }
