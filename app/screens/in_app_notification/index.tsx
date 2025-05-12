@@ -17,6 +17,7 @@ import {dismissOverlay} from '@screens/navigation';
 import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity} from '@utils/theme';
 import {secureGetFromRecord} from '@utils/types';
+import {getNotificationDisplayName} from '@utils/notification';
 
 import Icon from './icon';
 import Server from './server';
@@ -151,6 +152,9 @@ const InAppNotification = ({componentId, serverName, serverUrl, notification}: I
     const gesture = Gesture.Pan().activeOffsetY(-20).onStart(() => runOnJS(animateDismissOverlay)());
 
     const database = secureGetFromRecord(DatabaseManager.serverDatabases, serverUrl)?.database;
+    
+    // Get the display name based on notification preferences
+    const displayName = getNotificationDisplayName(notification);
 
     return (
         <GestureHandlerRootView style={styles.gestureHandler}>
@@ -177,7 +181,10 @@ const InAppNotification = ({componentId, serverName, serverUrl, notification}: I
                             />
                             }
                             <View style={styles.titleContainer}>
-                                <Title channelName={notification.payload?.channel_name || ''}/>
+                                <Title 
+                                    channelName={notification.payload?.channel_name || ''} 
+                                    displayName={displayName}
+                                />
                                 <View style={styles.flex}>
                                     <Text
                                         numberOfLines={2}

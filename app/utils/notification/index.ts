@@ -42,6 +42,10 @@ export const convertToNotificationData = (notification: Notification, tapped = t
             version: payload.version,
             isCRTEnabled: typeof payload.is_crt_enabled === 'string' ? payload.is_crt_enabled === 'true' : Boolean(payload.is_crt_enabled),
             data: payload.data,
+            nickname: payload.nickname,
+            first_name: payload.first_name,
+            last_name: payload.last_name,
+            use_full_name: payload.use_full_name,
         },
         userInteraction: tapped,
         foreground: false,
@@ -130,4 +134,25 @@ export const scheduleExpiredNotification = (serverUrl: string, session: Session,
     }
 
     return 0;
+};
+
+// Helper function to get the display name based on notification preferences
+export const getNotificationDisplayName = (notification: NotificationWithData): string => {
+    const {payload} = notification;
+    
+    if (!payload) {
+        return '';
+    }
+    
+    // If nicknamefullname is enabled and we have the necessary data
+    if (payload.use_full_name === 'true') {
+        if (payload.nickname) {
+            return payload.nickname;
+        } else if (payload.first_name || payload.last_name) {
+            return `${payload.first_name || ''} ${payload.last_name || ''}`.trim();
+        }
+    }
+    
+    // Default to sender_name if available
+    return payload.sender_name || '';
 };

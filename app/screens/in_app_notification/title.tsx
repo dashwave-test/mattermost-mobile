@@ -6,17 +6,17 @@ import {StyleSheet, Text} from 'react-native';
 
 interface NotificationTitleProps {
     channelName: string;
+    displayName?: string;
 }
 
-const Title = ({channelName}: NotificationTitleProps) => {
+const Title = ({channelName, displayName}: NotificationTitleProps) => {
     return (
         <Text
             numberOfLines={1}
-            ellipsizeMode='tail'
-            style={styles.title}
+            ellipsizeMode='tail'style={styles.title}
             testID='in_app_notification.title'
         >
-            {channelName}
+            {displayName ? `${displayName} in ${channelName}` : channelName}
         </Text>
     );
 };

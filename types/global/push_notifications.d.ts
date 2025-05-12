@@ -42,6 +42,10 @@ interface NotificationData {
     version: string;
     isCRTEnabled: boolean;
     data?: NotificationExtraData;
+    nickname?: string;
+    first_name?: string;
+    last_name?: string;
+    use_full_name?: string;
 }
 
 interface NotificationExtraData {
