@@ -51,6 +51,17 @@ const TIMEZONE_FORMAT = [
     },
 ];
 
+const ANIMATION_FORMAT = [
+    {
+        id: t('display_settings.animations.on'),
+        defaultMessage: 'On',
+    },
+    {
+        id: t('display_settings.animations.off'),
+        defaultMessage: 'Off',
+    },
+];
+
 type DisplayProps = {
     componentId: AvailableScreens;
     currentUser?: UserModel;
@@ -125,6 +136,14 @@ const Display = ({componentId, currentUser, hasMilitaryTimeFormat, isCRTEnabled,
                     testID='display_settings.crt.option'
                 />
             )}
+            <SettingItem
+                optionName='animations'
+                label={intl.formatMessage({id: 'display_settings.animations', defaultMessage: 'Animations'})}
+                info={intl.formatMessage(ANIMATION_FORMAT[1])}
+                description={intl.formatMessage({id: 'display_settings.animations.description', defaultMessage: 'Uses system accessibility setting to disable animations'})}
+                testID='display_settings.animations.option'
+                type='info'
+            />
         </SettingContainer>
     );
 };

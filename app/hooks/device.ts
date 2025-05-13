@@ -3,7 +3,7 @@
 
 import RNUtils, {type WindowDimensions} from '@mattermost/rnutils';
 import React, {type RefObject, useEffect, useRef, useState, useContext} from 'react';
-import {AppState, Keyboard, NativeEventEmitter, Platform, View} from 'react-native';
+import {AccessibilityInfo, AppState, Keyboard, NativeEventEmitter, Platform, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import {DeviceContext} from '@context/device';
@@ -142,4 +142,25 @@ export function useAvoidKeyboard(ref: RefObject<KeyboardAwareScrollView>, dimish
 
         ref.current?.scrollToPosition(0, offsetY);
     }, [height, dimisher, ref]);
+}
+
+export function useReduceMotion() {
+    const [reduceMotion, setReduceMotion] = useState(false);
+
+    useEffect(() => {
+        const checkReduceMotion = async () => {
+            const isReduceMotionEnabled = await AccessibilityInfo.isReduceMotionEnabled();
+            setReduceMotion(isReduceMotionEnabled);
+        };
+
+        checkReduceMotion();
+
+        const listener = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+
+        return () => {
+            listener.remove();
+        };
+    }, []);
+
+    return reduceMotion;
 }
