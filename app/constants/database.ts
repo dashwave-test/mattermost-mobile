@@ -76,6 +76,7 @@ export const SYSTEM_IDENTIFIERS = {
     SESSION_EXPIRATION: 'sessionExpiration',
     TEAM_HISTORY: 'teamHistory',
     WEBSOCKET: 'WebSocket',
+    PENDING_OPERATIONS: 'pendingOperations',
 };
 
 export const GLOBAL_IDENTIFIERS = {
@@ -100,6 +101,10 @@ export enum DatabaseType {
     DEFAULT,
     SERVER,
   }
+
+export enum PendingOperationType {
+    DELETE_POST = 'DELETE_POST',
+}
 
 export default {
     GLOBAL_IDENTIFIERS,

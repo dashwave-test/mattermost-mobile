@@ -7,7 +7,7 @@
 import {chunk} from 'lodash';
 
 import {markChannelAsUnread, updateLastPostAt} from '@actions/local/channel';
-import {addPostAcknowledgement, removePost, removePostAcknowledgement, storePostsForChannel} from '@actions/local/post';
+import {addPendingPostDeletion, addPostAcknowledgement, removePost, removePostAcknowledgement, storePostsForChannel} from '@actions/local/post';
 import {addRecentReaction} from '@actions/local/reactions';
 import {createThreadFromNewPost} from '@actions/local/thread';
 import {ActionType, General, Post, ServerErrors} from '@constants';
@@ -234,7 +234,7 @@ export const retryFailedPost = async (serverUrl: string, post: PostModel) => {
             create_at: timestamp,
             update_at: timestamp,
             delete_at: 0,
-        } as Post;
+        } asPost;
 
         // Update the local post to reflect the pending state in the UI
         // timestamps will remain the same as the initial attempt for createAt
@@ -749,7 +749,7 @@ export async function fetchMissingChannelsFromPosts(serverUrl: string, posts: Po
 
         const channelIds = new Set(await queryAllMyChannel(database).fetchIds());
         const channelPromises: Array<Promise<Channel>> = [];
-        const userPromises: Array<Promise<ChannelMembership>> = [];
+        const userPromises: Array<Promise<ChannelMembership>>> = [];
 
         posts.forEach((post) => {
             const id = post.channel_id;
@@ -876,6 +876,22 @@ export const deletePost = async (serverUrl: string, postToDelete: PostModel | Po
         return {post};
     } catch (error) {
         logDebug('error on deletePost', getFullErrorMessage(error));
+        
+        // If we're offline, add the post to pending operations to be deleted when we come back online
+        if (error && typeof error === 'object' && 'url' in error) {
+            await addPendingPostDeletion(serverUrl, postToDelete.id);
+            
+            // Mark the post as deleted locally so the UI reflects the change
+            if (postToDelete instanceof Object && 'prepareUpdate' in postToDelete) {
+                await markPostAsDeleted(serverUrl, {
+                    id: postToDelete.id,
+                    delete_at: Date.now(),
+                } as Post);
+            }
+            
+            return {post: postToDelete};
+        }
+        
         forceLogoutIfNecessary(serverUrl, error);
         return {error};
     }
