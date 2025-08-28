@@ -15,6 +15,7 @@ import {getDefaultThemeByAppearance} from '@context/theme';
 import EphemeralStore from '@store/ephemeral_store';
 import NavigationStore from '@store/navigation_store';
 import {isTablet} from '@utils/helpers';
+import {areAnimationsEnabled} from '@utils/accessibility';
 import {logError} from '@utils/log';
 import {appearanceControlledScreens, mergeNavigationOptions} from '@utils/navigation';
 import {changeOpacity, setNavigatorStyles} from '@utils/theme';
@@ -91,8 +92,23 @@ function onScreenWillAppear(event: ComponentWillAppearEvent) {
     }
 }
 
-export const loginAnimationOptions = () => {
+export const loginAnimationOptions = async () => {
     const theme = getThemeFromState();
+    const animationsEnabled = await areAnimationsEnabled();
+
+    if (!animationsEnabled) {
+        return {
+            animations: {
+                push: {
+                    enabled: false,
+                },
+                pop: {
+                    enabled: false,
+                },
+            },
+        };
+    }
+
     return {
         layout: {
             backgroundColor: theme.centerChannelBg,
@@ -139,7 +155,21 @@ export const loginAnimationOptions = () => {
     };
 };
 
-export const bottomSheetModalOptions = (theme: Theme, closeButtonId?: string): Options => {
+export const bottomSheetModalOptions = async (theme: Theme, closeButtonId?: string): Promise<Options> => {
+    const animationsEnabled = await areAnimationsEnabled();
+    if (!animationsEnabled) {
+        return {
+            animations: {
+                showModal: {
+                    enabled: false,
+                },
+                dismissModal: {
+                    enabled: false,
+                },
+            },
+        };
+    }
+
     if (closeButtonId) {
         const closeButton = CompassIcon.getImageSourceSync('close', 24, theme.centerChannelColor);
         const closeButtonTestId = `${closeButtonId.replace('close-', 'close.').replace(/-/g, '_')}.button`;
@@ -185,41 +215,43 @@ export const bottomSheetModalOptions = (theme: Theme, closeButtonId?: string): O
 
 // This locks phones to portrait for all screens while keeps
 // all orientations available for Tablets.
-Navigation.setDefaultOptions({
-    animations: {
-        setRoot: {
-            enter: {
-                waitForRender: true,
-                enabled: true,
-                alpha: {
-                    from: 0,
-                    to: 1,
-                    duration: 300,
+areAnimationsEnabled().then((animationsEnabled) => {
+    Navigation.setDefaultOptions({
+        animations: {
+            setRoot: {
+                enter: {
+                    waitForRender: true,
+                    enabled: animationsEnabled,
+                    alpha: {
+                        from: 0,
+                        to: 1,
+                        duration: 300,
+                    },
                 },
             },
         },
-    },
-    layout: {
-        orientation: isTablet() ? allOrientations : portraitOrientation,
-    },
-    topBar: {
-        title: {
-            fontFamily: 'Metropolis-SemiBold',
-            fontSize: 18,
-            fontWeight: '600',
+        layout: {
+            orientation: isTablet() ? allOrientations : portraitOrientation,
         },
-        backButton: {
-            enableMenu: false,
+        topBar: {
+            title: {
+                fontFamily: 'Metropolis-SemiBold',
+                fontSize: 18,
+                fontWeight: '600',
+            },
+            backButton: {
+                enableMenu: false,
+            },
+            subtitle: {
+                fontFamily: 'OpenSans',
+                fontSize: 12,
+                fontWeight: '400',
+            },
         },
-        subtitle: {
-            fontFamily: 'OpenSans',
-            fontSize: 12,
-            fontWeight: '400',
-        },
-    },
+    });
 });
 
-Appearance.addChangeListener(() => {
+Appearance.addChangeListener(async () => {
     const theme = getThemeFromState();
     const screens = NavigationStore.getScreensInStack();
 
@@ -227,7 +259,7 @@ Appearance.addChangeListener(() => {
         for (const screen of screens) {
             if (appearanceControlledScreens.has(screen)) {
                 Navigation.updateProps(screen, {theme});
-                setNavigatorStyles(screen, theme, loginAnimationOptions(), theme.sidebarBg);
+                setNavigatorStyles(screen, theme, await loginAnimationOptions(), theme.sidebarBg);
             }
         }
     }
@@ -271,18 +303,18 @@ export function openToS() {
     return showOverlay(Screens.TERMS_OF_SERVICE, {}, {overlay: {interceptTouchOutside: true}});
 }
 
-export function resetToHome(passProps: LaunchProps = {launchType: Launch.Normal}) {
+export async function resetToHome(passProps: LaunchProps = {launchType: Launch.Normal}) {
     const theme = getThemeFromState();
     const isDark = tinyColor(theme.sidebarBg).isDark();
     StatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
 
     if (!passProps.coldStart && (passProps.launchType === Launch.AddServer || passProps.launchType === Launch.AddServerFromDeepLink)) {
-        dismissModal({componentId: Screens.SERVER});
-        dismissModal({componentId: Screens.LOGIN});
-        dismissModal({componentId: Screens.SSO});
-        dismissModal({componentId: Screens.BOTTOM_SHEET});
+        await dismissModal({componentId: Screens.SERVER});
+        await dismissModal({componentId: Screens.LOGIN});
+        await dismissModal({componentId: Screens.SSO});
+        await dismissModal({componentId: Screens.BOTTOM_SHEET});
         if (passProps.launchType === Launch.AddServerFromDeepLink) {
-            Navigation.updateProps(Screens.HOME, {launchType: Launch.DeepLink, extra: passProps.extra});
+            await Navigation.updateProps(Screens.HOME, {launchType: Launch.DeepLink, extra: passProps.extra});
         }
         return '';
     }
@@ -453,7 +485,7 @@ export function resetToTeams() {
     });
 }
 
-export function goToScreen(name: AvailableScreens, title: string, passProps = {}, options: Options = {}) {
+export async function goToScreen(name: AvailableScreens, title: string, passProps = {}, options: Options = {}) {
     if (!isScreenRegistered(name)) {
         return '';
     }
@@ -466,11 +498,20 @@ export function goToScreen(name: AvailableScreens, title: string, passProps = {}
         return '';
     }
 
+    const animationsEnabled = await areAnimationsEnabled();
     const defaultOptions: Options = {
+        animations: {
+            push: {
+                enabled: animationsEnabled,
+            },
+            pop: {
+                enabled: animationsEnabled,
+            },
+        },
         layout: {
             componentBackgroundColor: theme.centerChannelBg,
         },
-        popGesture: true,
+        popGesture: animationsEnabled,
         sideMenu: {
             left: {enabled: false},
             right: {enabled: false},
@@ -500,7 +541,7 @@ export function goToScreen(name: AvailableScreens, title: string, passProps = {}
     DeviceEventEmitter.emit(Events.TAB_BAR_VISIBLE, false);
 
     if (NavigationStore.getScreensInStack().includes(name)) {
-        Navigation.updateProps(name, passProps);
+        await Navigation.updateProps(name, passProps);
         return Navigation.popTo(name, merge(defaultOptions, options));
     }
 
@@ -549,7 +590,8 @@ export async function popToRoot() {
 }
 
 export async function dismissAllModalsAndPopToRoot() {
-    await dismissAllModals();
+    const animationsEnabled = await areAnimationsEnabled();
+    await dismissAllModals(animationsEnabled);
     await dismissAllOverlays();
     await popToRoot();
 }
@@ -563,7 +605,8 @@ export async function dismissAllModalsAndPopToRoot() {
  * @param options Navigation options
  */
 export async function dismissAllModalsAndPopToScreen(screenId: AvailableScreens, title: string, passProps = {}, options = {}) {
-    await dismissAllModals();
+    const animationsEnabled = await areAnimationsEnabled();
+    await dismissAllModals(animationsEnabled);
     await dismissAllOverlays();
     if (NavigationStore.getScreensInStack().includes(screenId)) {
         let mergeOptions = options;
@@ -589,14 +632,23 @@ export async function dismissAllModalsAndPopToScreen(screenId: AvailableScreens,
     }
 }
 
-export function showModal(name: AvailableScreens, title: string, passProps = {}, options: Options = {}) {
+export async function showModal(name: AvailableScreens, title: string, passProps = {}, options: Options = {}) {
     if (!isScreenRegistered(name) || NavigationStore.getVisibleModal() === name) {
         return;
     }
 
     const theme = getThemeFromState();
+    const animationsEnabled = await areAnimationsEnabled();
     const modalPresentationStyle: OptionsModalPresentationStyle = Platform.OS === 'ios' ? OptionsModalPresentationStyle.pageSheet : OptionsModalPresentationStyle.none;
     const defaultOptions: Options = {
+        animations: {
+            showModal: {
+                enabled: animationsEnabled,
+            },
+            dismissModal: {
+                enabled: animationsEnabled,
+            },
+        },
         modalPresentationStyle,
         layout: {
             componentBackgroundColor: theme.centerChannelBg,
@@ -642,48 +694,60 @@ export function showModal(name: AvailableScreens, title: string, passProps = {},
     });
 }
 
-export function showModalOverCurrentContext(name: AvailableScreens, passProps = {}, options: Options = {}) {
+export async function showModalOverCurrentContext(name: AvailableScreens, passProps = {}, options: Options = {}) {
     const title = '';
     let animations;
-    switch (Platform.OS) {
-        case 'android':
-            animations = {
-                showModal: {
-                    waitForRender: false,
-                    alpha: {
-                        from: 0,
-                        to: 1,
-                        duration: 250,
+    const animationsEnabled = await areAnimationsEnabled();
+    if (!animationsEnabled) {
+        animations = {
+            showModal: {
+                enabled: false,
+            },
+            dismissModal: {
+                enabled: false,
+            },
+        };
+    } else {
+        switch (Platform.OS) {
+            case 'android':
+                animations = {
+                    showModal: {
+                        waitForRender: false,
+                        alpha: {
+                            from: 0,
+                            to: 1,
+                            duration: 250,
+                        },
                     },
-                },
-                dismissModal: {
-                    alpha: {
-                        from: 1,
-                        to: 0,
-                        duration: 250,
+                    dismissModal: {
+                        alpha: {
+                            from: 1,
+                            to: 0,
+                            duration: 250,
+                        },
                     },
-                },
-            };
-            break;
-        default:
-            animations = {
-                showModal: {
-                    alpha: {
-                        from: 0,
-                        to: 1,
-                        duration: 250,
+                };
+                break;
+            default:
+                animations = {
+                    showModal: {
+                        alpha: {
+                            from: 0,
+                            to: 1,
+                            duration: 250,
+                        },
                     },
-                },
-                dismissModal: {
-                    enter: {
-                        enabled: false,
+                    dismissModal: {
+                        enter: {
+                            enabled: false,
+                        },
+                        exit: {
+                            enabled: false,
+                        },
                     },
-                    exit: {
-                        enabled: false,
-                    },
-                },
-            };
-            break;
+                };
+                break;
+        }
     }
     const defaultOptions = {
         modalPresentationStyle: OptionsModalPresentationStyle.overCurrentContext,
@@ -698,7 +762,7 @@ export function showModalOverCurrentContext(name: AvailableScreens, passProps = 
         animations,
     };
     const mergeOptions = merge(defaultOptions, options);
-    showModal(name, title, passProps, mergeOptions);
+    await showModal(name, title, passProps, mergeOptions);
 }
 
 export async function dismissModal(options?: Options & { componentId: AvailableScreens}) {
@@ -717,15 +781,17 @@ export async function dismissModal(options?: Options & { componentId: AvailableS
     }
 }
 
-export async function dismissAllModals() {
+export async function dismissAllModals(animationsEnabled?: boolean) {
     if (!NavigationStore.hasModalsOpened()) {
         return;
     }
 
+    const animated = animationsEnabled ?? await areAnimationsEnabled();
+
     try {
         const modals = [...NavigationStore.getModalsInStack()];
         for await (const modal of modals) {
-            await Navigation.dismissModal(modal, {animations: {dismissModal: {enabled: false}}});
+            await Navigation.dismissModal(modal, {animations: {dismissModal: {enabled: animated}}});
         }
     } catch (error) {
         // RNN returns a promise rejection if there are no modals to
@@ -806,22 +872,24 @@ type BottomSheetArgs = {
     title: string;
 }
 
-export function bottomSheet({title, renderContent, footerComponent, snapPoints, initialSnapIndex = 1, theme, closeButtonId}: BottomSheetArgs) {
+export async function bottomSheet({title, renderContent, footerComponent, snapPoints, initialSnapIndex = 1, theme, closeButtonId}: BottomSheetArgs) {
+    const options = await bottomSheetModalOptions(theme, closeButtonId);
     if (isTablet()) {
-        showModal(Screens.BOTTOM_SHEET, title, {
+        await showModal(Screens.BOTTOM_SHEET, title, {
             closeButtonId,
             initialSnapIndex,
             renderContent,
             footerComponent,
             snapPoints,
-        }, bottomSheetModalOptions(theme, closeButtonId));
+        }, options);
     } else {
-        showModalOverCurrentContext(Screens.BOTTOM_SHEET, {
+        const overCurrentContextOpts = await bottomSheetModalOptions(theme);
+        await showModalOverCurrentContext(Screens.BOTTOM_SHEET, {
             initialSnapIndex,
             renderContent,
             footerComponent,
             snapPoints,
-        }, bottomSheetModalOptions(theme));
+        }, overCurrentContextOpts);
     }
 }
 
@@ -838,20 +906,22 @@ type AsBottomSheetArgs = {
     title: string;
 }
 
-export function openAsBottomSheet({closeButtonId, screen, theme, title, props}: AsBottomSheetArgs) {
+export async function openAsBottomSheet({closeButtonId, screen, theme, title, props}: AsBottomSheetArgs) {
     if (isTablet()) {
-        showModal(screen, title, {
+        const options = await bottomSheetModalOptions(theme, closeButtonId);
+        await showModal(screen, title, {
             closeButtonId,
             ...props,
-        }, bottomSheetModalOptions(theme, closeButtonId));
+        }, options);
     } else {
-        showModalOverCurrentContext(screen, props, bottomSheetModalOptions(theme));
+        const overCurrentContextOpts = await bottomSheetModalOptions(theme);
+        await showModalOverCurrentContext(screen, props, overCurrentContextOpts);
     }
 }
 
 export const showAppForm = async (form: AppForm, context: AppContext) => {
     const passProps = {form, context};
-    showModal(Screens.APPS_FORM, form.title || '', passProps);
+    await showModal(Screens.APPS_FORM, form.title || '', passProps);
 };
 
 export const showReviewOverlay = (hasAskedBefore: boolean) => {
@@ -882,7 +952,7 @@ export async function findChannels(title: string, theme: Theme) {
         }],
     };
 
-    showModal(
+    await showModal(
         Screens.FIND_CHANNELS,
         title,
         {closeButtonId},
