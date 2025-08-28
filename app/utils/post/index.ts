@@ -82,8 +82,11 @@ export function shouldIgnorePost(post: Post): boolean {
 }
 
 export const processPostsFetched = (data: PostResponse) => {
-    const order = data.order;
-    const posts = Object.values(data.posts);
+    const order = data.order.filter((id) => {
+        const post = data.posts[id];
+        return post && post.delete_at === 0;
+    });
+    const posts = order.map((id) => data.posts[id]);
     const previousPostId = data.prev_post_id;
 
     return {
