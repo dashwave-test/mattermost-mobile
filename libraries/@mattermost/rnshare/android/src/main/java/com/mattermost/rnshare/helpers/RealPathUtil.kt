@@ -6,10 +6,12 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.text.TextUtils
 import android.util.Log
+import android.webkit.MimeTypeMap
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.UUID
 
 object RealPathUtil {
     const val CACHE_DIR_NAME: String = "mmShare"
@@ -84,9 +86,16 @@ object RealPathUtil {
 
         try
         {
-            if (fileName == null) {
-                fileName = sanitizeFilename(uri.lastPathSegment.toString().trim())
+            if (TextUtils.isEmpty(fileName)) {
+                fileName = sanitizeFilename(uri.lastPathSegment?.toString()?.trim())
             }
+
+            if (TextUtils.isEmpty(fileName)) {
+                val mimeType = getMimeTypeFromUri(context, uri)
+                val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+                fileName = UUID.randomUUID().toString() + if (extension != null) ".$extension" else ""
+            }
+
             val cacheDir = File(context.cacheDir, CACHE_DIR_NAME)
             if (!cacheDir.exists()) {
                 cacheDir.mkdirs()
