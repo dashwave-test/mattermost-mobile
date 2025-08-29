@@ -52,7 +52,11 @@ import static com.mattermost.helpers.database_extension.GeneralKt.getDatabaseFor
 import static com.mattermost.helpers.database_extension.GeneralKt.getDeviceToken;
 import static com.mattermost.helpers.database_extension.SystemKt.queryConfigServerVersion;
 import static com.mattermost.helpers.database_extension.SystemKt.queryConfigSigningKey;
+import static com.mattermost.helpers.database_extension.SystemKt.queryTeammateNameDisplay;
 import static com.mattermost.helpers.database_extension.UserKt.getLastPictureUpdate;
+import static com.mattermost.helpers.database_extension.UserKt.queryUserById;
+
+import java.util.Map;
 
 public class CustomPushNotificationHelper {
     public static final String CHANNEL_HIGH_IMPORTANCE_ID = "channel_01";
@@ -81,7 +85,15 @@ public class CustomPushNotificationHelper {
         if (senderId == null) {
             senderId = "sender_id";
         }
-        String senderName = getSenderName(bundle);
+
+        WMDatabase db = null;
+        if (serverUrl != null) {
+            DatabaseHelper dbHelper = DatabaseHelper.Companion.getInstance();
+            if (dbHelper != null) {
+                db = getDatabaseForServer(dbHelper, context, serverUrl);
+            }
+        }
+        String senderName = getSenderName(bundle, db);
 
         if (conversationTitle == null || !android.text.TextUtils.isEmpty(senderName.trim())) {
             message = removeSenderNameFromMessage(message, senderName);
@@ -409,11 +421,11 @@ public class CustomPushNotificationHelper {
         return output;
     }
 
-    private static String getConversationTitle(Bundle bundle) {
+    private static String getConversationTitle(Bundle bundle, WMDatabase db) {
         String title = bundle.getString("channel_name");
 
         if (android.text.TextUtils.isEmpty(title)) {
-            title = bundle.getString("sender_name");
+            title = getSenderName(bundle, db);
         }
 
         if (android.text.TextUtils.isEmpty(title)) {
@@ -429,6 +441,14 @@ public class CustomPushNotificationHelper {
         final String serverUrl = bundle.getString("server_url");
         final String type = bundle.getString("type");
         String urlOverride = bundle.getString("override_icon_url");
+
+        WMDatabase db = null;
+        if (serverUrl != null) {
+            DatabaseHelper dbHelper = DatabaseHelper.Companion.getInstance();
+            if (dbHelper != null) {
+                db = getDatabaseForServer(dbHelper, context, serverUrl);
+            }
+        }
 
         Person.Builder sender = new Person.Builder()
                 .setKey(senderId)
@@ -447,15 +467,46 @@ public class CustomPushNotificationHelper {
 
         messagingStyle = new NotificationCompat.MessagingStyle(sender.build());
 
-        String conversationTitle = getConversationTitle(bundle);
-        setMessagingStyleConversationTitle(messagingStyle, conversationTitle, bundle);
+        String conversationTitle = getConversationTitle(bundle, db);
+        setMessagingStyleConversationTitle(messagingStyle, conversationTitle, bundle, db);
         addMessagingStyleMessages(context, messagingStyle, conversationTitle, bundle);
 
         return messagingStyle;
     }
 
-    private static String getSenderName(Bundle bundle) {
+    private static String getSenderName(Bundle bundle, WMDatabase db) {
+        String senderId = bundle.getString("sender_id");
         String senderName = bundle.getString("sender_name");
+
+        if (db != null && senderId != null) {
+            Map<String, String> user = queryUserById(db, senderId);
+            if (user != null) {
+                String teammateNameDisplay = queryTeammateNameDisplay(db);
+                if (teammateNameDisplay == null) {
+                    teammateNameDisplay = "username";
+                }
+
+                switch (teammateNameDisplay.replace("\"", "")) {
+                    case "nickname_full_name":
+                        String nickname = user.get("nickname");
+                        if (nickname != null && !nickname.isEmpty()) {
+                            return nickname;
+                        }
+                    case "full_name":
+                        String firstName = user.get("first_name");
+                        String lastName = user.get("last_name");
+                        if (firstName != null && !firstName.isEmpty() && lastName != null && !lastName.isEmpty()) {
+                            return firstName + " " + lastName;
+                        }
+                        break;
+                }
+                String username = user.get("username");
+                if (username != null) {
+                    return username;
+                }
+            }
+        }
+
         if (senderName != null) {
             return senderName;
         }
@@ -473,7 +524,7 @@ public class CustomPushNotificationHelper {
             }
         }
 
-        return getConversationTitle(bundle);
+        return getConversationTitle(bundle, db);
     }
 
     private static String removeSenderNameFromMessage(String message, String senderName) {
@@ -485,11 +536,11 @@ public class CustomPushNotificationHelper {
         return message.replaceFirst(": ", "").trim();
     }
 
-    private static void setMessagingStyleConversationTitle(NotificationCompat.MessagingStyle messagingStyle, String conversationTitle, Bundle bundle) {
-        String channelName = getConversationTitle(bundle);
+    private static void setMessagingStyleConversationTitle(NotificationCompat.MessagingStyle messagingStyle, String conversationTitle, Bundle bundle, WMDatabase db) {
+        String channelName = getConversationTitle(bundle, db);
         String senderName = bundle.getString("sender_name");
         if (TextUtils.isEmpty(senderName)) {
-            senderName = getSenderName(bundle);
+            senderName = getSenderName(bundle, db);
         }
 
         if (conversationTitle != null && !channelName.equals(senderName)) {
@@ -546,9 +597,17 @@ public class CustomPushNotificationHelper {
     }
 
     private static void setNotificationIcons(Context context, NotificationCompat.Builder notification, Bundle bundle) {
-        String channelName = getConversationTitle(bundle);
-        String senderName = bundle.getString("sender_name");
         String serverUrl = bundle.getString("server_url");
+        WMDatabase db = null;
+        if (serverUrl != null) {
+            DatabaseHelper dbHelper = DatabaseHelper.Companion.getInstance();
+            if (dbHelper != null) {
+                db = getDatabaseForServer(dbHelper, context, serverUrl);
+            }
+        }
+
+        String channelName = getConversationTitle(bundle, db);
+        String senderName = bundle.getString("sender_name");
         String urlOverride = bundle.getString("override_icon_url");
 
         notification.setSmallIcon(R.mipmap.ic_notification);

@@ -13,6 +13,10 @@ fun queryCurrentTeamId(db: WMDatabase): String? {
     return result?.getString("value")?.removeSurrounding("\"")
 }
 
+fun queryTeammateNameDisplay(db: WMDatabase): String? {
+    return find(db, "Config", "TeammateNameDisplay")?.getString("value")
+}
+
 fun queryConfigDisplayNameSetting(db: WMDatabase): String? {
     val license = find(db, "System", "license")
     val lockDisplayName = find(db, "Config", "LockTeammateNameDisplay")

@@ -45,6 +45,26 @@ fun getCurrentUserLocale(db: WMDatabase): String {
     return "en"
 }
 
+fun queryUserById(db: WMDatabase, userId: String): Map<String, String?>? {
+    try {
+        val userQuery = "SELECT nickname, first_name, last_name, username FROM User WHERE id=?"
+        db.rawQuery(userQuery, arrayOf(userId)).use { cursor ->
+            if (cursor.count == 1) {
+                cursor.moveToFirst()
+                val map = mutableMapOf<String, String?>()
+                map["nickname"] = cursor.getString(0)
+                map["first_name"] = cursor.getString(1)
+                map["last_name"] = cursor.getString(2)
+                map["username"] = cursor.getString(3)
+                return map
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return null
+}
+
 fun handleUsers(db: WMDatabase, users: ReadableArray) {
     for (i in 0 until users.size()) {
         val user = users.getMap(i)
